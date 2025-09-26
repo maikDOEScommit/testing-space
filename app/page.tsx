@@ -11,23 +11,30 @@ const FONT_CONFIG: Record<string, { woff2: string; className: string }> = {
 };
 
 // Types definieren
+type Character = {
+    char: string;
+    color: string;
+    index: number;
+    size: number; // Relative Größe (1.0 = 100%)
+    rotation: number; // Rotation in Grad
+    glyph?: string; // Alternative Glyph-Darstellung
+};
+
+type FontFeature = {
+    tag: string;
+    name: string;
+    enabled: boolean;
+};
+
 type Logo = {
     id: string;
     text: string;
     fontName: string;
     textColor: string;
     bgColor: string;
-    groups: Array<{
-        text: string;
-        type: string;
-        start: number;
-        activeFeature: null;
-        color: null;
-    }>;
-    globalFeatures: {
-        liga: boolean;
-        clig: boolean;
-    };
+    characters: Character[];
+    fontFeatures: FontFeature[];
+    selectedCharIndex: number | null;
 };
 
 // --- LogoEditor Komponente (vorher in separater Datei) ---
@@ -46,63 +53,254 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     const handleColorChange = (type: string, value: string) => {
         const updatedLogo = { ...logo, [type]: value };
         setLogo(updatedLogo);
-        onUpdate(updatedLogo); // Live-Vorschau auf der Hauptseite aktualisieren
+        onUpdate(updatedLogo);
+    };
+
+    const handleCharacterClick = (index: number) => {
+        const updatedLogo = { ...logo, selectedCharIndex: index };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const handleCharacterPropertyChange = (property: keyof Character, value: any) => {
+        if (logo.selectedCharIndex === null) return;
+
+        const updatedCharacters = [...logo.characters];
+        updatedCharacters[logo.selectedCharIndex] = {
+            ...updatedCharacters[logo.selectedCharIndex],
+            [property]: value
+        };
+
+        const updatedLogo = { ...logo, characters: updatedCharacters };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    // Generiere verfügbare Glyphen für den aktuellen Font
+    const getAvailableGlyphs = (fontName: string): string[] => {
+        const baseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const specialChars = '!@#$%^&*()_+-=[]{}|;:\'",.<>?/~`';
+        const extendedChars = 'ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
+        const symbols = '←→↑↓↔↕↖↗↘↙⇐⇑⇒⇓⇔⇕⇖⇗⇘⇙★☆♠♣♥♦♪♫☀☁☂☃❄';
+
+        return (baseChars + specialChars + extendedChars + symbols).split('');
+    };
+
+    const toggleFontFeature = (featureTag: string) => {
+        const updatedFeatures = logo.fontFeatures.map(feature =>
+            feature.tag === featureTag
+                ? { ...feature, enabled: !feature.enabled }
+                : feature
+        );
+
+        const updatedLogo = { ...logo, fontFeatures: updatedFeatures };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const getFontFeatureSettings = () => {
+        return logo.fontFeatures
+            .map(feature => `"${feature.tag}" ${feature.enabled ? '1' : '0'}`)
+            .join(', ');
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg relative animate-fade-in-up">
+            <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl relative animate-fade-in-up max-h-[90vh] overflow-y-auto">
                 <button
                     onClick={onClose}
-                    className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors"
+                    className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-10"
                     aria-label="Editor schließen"
                 >
                     <X size={24} />
                 </button>
                 <div className="p-6">
-                     <h2 className="text-2xl font-bold mb-6 text-center">Logo bearbeiten</h2>
-                    {/* Vorschau-Bereich */}
+                    <h2 className="text-2xl font-bold mb-6 text-center">Logo bearbeiten</h2>
+
+                    {/* Vorschau-Bereich mit klickbaren Buchstaben */}
                     <div
                         className="p-8 rounded-lg mb-6 transition-colors duration-300"
-                        style={{ backgroundColor: logo.bgColor, color: logo.textColor }}
+                        style={{ backgroundColor: logo.bgColor }}
                     >
-                        <div className={`${fontClassName} text-6xl text-center break-words features-on`}>
-                            {logo.text}
+                        <div
+                            className={`${fontClassName} text-6xl text-center break-words cursor-pointer`}
+                            style={{ fontFeatureSettings: getFontFeatureSettings() }}
+                        >
+                            {logo.characters.map((char, index) => (
+                                <span
+                                    key={index}
+                                    className={`inline-block transition-all duration-200 hover:scale-110 ${
+                                        logo.selectedCharIndex === index
+                                            ? 'bg-blue-500 bg-opacity-30 rounded'
+                                            : ''
+                                    }`}
+                                    style={{
+                                        color: char.color,
+                                        transform: `scale(${char.size}) rotate(${char.rotation}deg)`,
+                                        transformOrigin: 'center center',
+                                        display: 'inline-block'
+                                    }}
+                                    onClick={() => handleCharacterClick(index)}
+                                >
+                                    {char.glyph || char.char}
+                                </span>
+                            ))}
                         </div>
                     </div>
 
                     {/* Steuerungs-Bereich */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                         <div>
-                            <label htmlFor="textColor" className="block text-sm font-medium text-gray-300 mb-2">
-                                Textfarbe
-                            </label>
-                            <div className="flex items-center bg-gray-700 rounded-lg px-3">
-                                <input
-                                    id="textColor"
-                                    type="color"
-                                    value={logo.textColor}
-                                    onChange={(e) => handleColorChange('textColor', e.target.value)}
-                                    className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
-                                />
-                                <span className="pl-3 font-mono">{logo.textColor}</span>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Globale Farben */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-semibold text-gray-200">Globale Farben</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label htmlFor="textColor" className="block text-sm font-medium text-gray-300 mb-2">
+                                        Standard Textfarbe
+                                    </label>
+                                    <div className="flex items-center bg-gray-700 rounded-lg px-3">
+                                        <input
+                                            id="textColor"
+                                            type="color"
+                                            value={logo.textColor}
+                                            onChange={(e) => handleColorChange('textColor', e.target.value)}
+                                            className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
+                                        />
+                                        <span className="pl-3 font-mono text-sm">{logo.textColor}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label htmlFor="bgColor" className="block text-sm font-medium text-gray-300 mb-2">
+                                        Hintergrund
+                                    </label>
+                                    <div className="flex items-center bg-gray-700 rounded-lg px-3">
+                                        <input
+                                            id="bgColor"
+                                            type="color"
+                                            value={logo.bgColor}
+                                            onChange={(e) => handleColorChange('bgColor', e.target.value)}
+                                            className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
+                                        />
+                                        <span className="pl-3 font-mono text-sm">{logo.bgColor}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Einzelzeichen-Bearbeitung */}
+                            {logo.selectedCharIndex !== null && (
+                                <div className="space-y-4">
+                                    <h4 className="text-md font-semibold text-gray-200">
+                                        Bearbeitung: "{logo.characters[logo.selectedCharIndex].char}"
+                                    </h4>
+
+                                    {/* Farbe */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Farbe
+                                        </label>
+                                        <div className="flex items-center bg-gray-700 rounded-lg px-3">
+                                            <input
+                                                type="color"
+                                                value={logo.characters[logo.selectedCharIndex].color}
+                                                onChange={(e) => handleCharacterPropertyChange('color', e.target.value)}
+                                                className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
+                                            />
+                                            <span className="pl-3 font-mono text-sm">
+                                                {logo.characters[logo.selectedCharIndex].color}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Größe */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Größe: {Math.round(logo.characters[logo.selectedCharIndex].size * 100)}%
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0.5"
+                                            max="2"
+                                            step="0.1"
+                                            value={logo.characters[logo.selectedCharIndex].size}
+                                            onChange={(e) => handleCharacterPropertyChange('size', parseFloat(e.target.value))}
+                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+
+                                    {/* Rotation */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Rotation: {logo.characters[logo.selectedCharIndex].rotation}°
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="-180"
+                                            max="180"
+                                            step="5"
+                                            value={logo.characters[logo.selectedCharIndex].rotation}
+                                            onChange={(e) => handleCharacterPropertyChange('rotation', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+
+                                    {/* Glyph-Auswahl */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Zeichen ändern
+                                        </label>
+                                        <div className="grid grid-cols-8 gap-1 max-h-32 overflow-y-auto bg-gray-700 rounded-lg p-2">
+                                            {getAvailableGlyphs(logo.fontName).map((glyph, glyphIndex) => (
+                                                <button
+                                                    key={glyphIndex}
+                                                    onClick={() => handleCharacterPropertyChange('glyph', glyph)}
+                                                    className={`w-8 h-8 text-center hover:bg-gray-600 rounded transition-colors ${
+                                                        logo.selectedCharIndex !== null && logo.characters[logo.selectedCharIndex].glyph === glyph
+                                                            ? 'bg-blue-500'
+                                                            : 'bg-gray-800'
+                                                    }`}
+                                                    style={{ fontSize: '14px' }}
+                                                >
+                                                    {glyph}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Font Features */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-semibold text-gray-200">
+                                Font Features ({logo.fontName})
+                            </h3>
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {logo.fontFeatures.map((feature) => (
+                                    <div key={feature.tag} className="flex items-center justify-between bg-gray-700 rounded-lg p-3">
+                                        <div>
+                                            <span className="font-medium text-gray-200">{feature.name}</span>
+                                            <span className="text-xs text-gray-400 ml-2">({feature.tag})</span>
+                                        </div>
+                                        <button
+                                            onClick={() => toggleFontFeature(feature.tag)}
+                                            className={`w-12 h-6 rounded-full transition-colors ${
+                                                feature.enabled
+                                                    ? 'bg-blue-500'
+                                                    : 'bg-gray-600'
+                                            }`}
+                                        >
+                                            <div className={`w-5 h-5 bg-white rounded-full transition-transform ${
+                                                feature.enabled ? 'translate-x-6' : 'translate-x-0.5'
+                                            }`} />
+                                        </button>
+                                    </div>
+                                ))}
                             </div>
                         </div>
-                        <div>
-                            <label htmlFor="bgColor" className="block text-sm font-medium text-gray-300 mb-2">
-                                Hintergrund
-                            </label>
-                             <div className="flex items-center bg-gray-700 rounded-lg px-3">
-                                <input
-                                    id="bgColor"
-                                    type="color"
-                                    value={logo.bgColor}
-                                    onChange={(e) => handleColorChange('bgColor', e.target.value)}
-                                    className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
-                                />
-                                <span className="pl-3 font-mono">{logo.bgColor}</span>
-                            </div>
-                        </div>
+                    </div>
+
+                    <div className="mt-6 text-center text-sm text-gray-400">
+                        Klicken Sie auf einzelne Buchstaben, um sie individuell zu bearbeiten
                     </div>
                 </div>
             </div>
@@ -132,6 +330,37 @@ export default function HomePage() {
         return data;
     }, [fontCache]);
 
+    // Erstellt die Zeichen-Array aus Text
+    const createCharactersFromText = (text: string, color: string): Character[] => {
+        return text.split('').map((char, index) => ({
+            char,
+            color,
+            index,
+            size: 1.0,
+            rotation: 0,
+            glyph: char
+        }));
+    };
+
+    // Standard Font Features für verschiedene Fonts
+    const getDefaultFontFeatures = (fontName: string): FontFeature[] => {
+        const commonFeatures: FontFeature[] = [
+            { tag: 'liga', name: 'Standard Ligaturen', enabled: true },
+            { tag: 'clig', name: 'Kontextuelle Ligaturen', enabled: true },
+            { tag: 'kern', name: 'Kerning', enabled: true },
+            { tag: 'dlig', name: 'Diskrete Ligaturen', enabled: false },
+            { tag: 'swsh', name: 'Swash-Zeichen', enabled: false },
+            { tag: 'calt', name: 'Kontextuelle Alternativen', enabled: false },
+            { tag: 'ss01', name: 'Stylistic Set 1', enabled: false },
+            { tag: 'ss02', name: 'Stylistic Set 2', enabled: false },
+            { tag: 'ss03', name: 'Stylistic Set 3', enabled: false },
+            { tag: 'salt', name: 'Stilistische Alternativen', enabled: false }
+        ];
+
+        // Je nach Font können verschiedene Features verfügbar sein
+        return commonFeatures;
+    };
+
     // Generiert die initialen Logo-Daten
     const generateInitialLogos = useCallback(async (currentText: string) => {
         if (!currentText) {
@@ -139,18 +368,20 @@ export default function HomePage() {
             return;
         }
         setIsLoading(true);
-        const generated = [];
+        const generated: Logo[] = [];
         for (const fontName in FONT_CONFIG) {
             await getFontData(fontName); // Stellt sicher, dass die Schrift gecached ist
+
+            const defaultColor = '#FFFFFF';
             generated.push({
                 id: `${fontName}-${currentText}`,
                 text: currentText,
                 fontName,
-                textColor: '#FFFFFF',
+                textColor: defaultColor,
                 bgColor: '#1F2937',
-                // Zukünftige erweiterte Features
-                groups: [{ text: currentText, type: 'full', start: 0, activeFeature: null, color: null }],
-                globalFeatures: { 'liga': true, 'clig': true }
+                characters: createCharactersFromText(currentText, defaultColor),
+                fontFeatures: getDefaultFontFeatures(fontName),
+                selectedCharIndex: null
             });
         }
         setLogos(generated);
@@ -220,19 +451,40 @@ function LogoCard({ logo, onEdit }: {
     logo: Logo;
     onEdit: () => void;
 }) {
-    const { fontName, textColor, bgColor, text } = logo;
+    const { fontName, bgColor, characters, fontFeatures } = logo;
     const fontClassName = FONT_CONFIG[fontName].className;
+
+    const getFontFeatureSettings = () => {
+        return fontFeatures
+            .map(feature => `"${feature.tag}" ${feature.enabled ? '1' : '0'}`)
+            .join(', ');
+    };
 
     return (
         <div
             onClick={onEdit}
             className="p-8 rounded-lg cursor-pointer transform hover:scale-105 transition-all duration-300"
-            style={{ backgroundColor: bgColor, color: textColor }}
+            style={{ backgroundColor: bgColor }}
         >
-            <div className={`${fontClassName} text-5xl text-center break-words features-on`}>
-                {text}
+            <div
+                className={`${fontClassName} text-5xl text-center break-words`}
+                style={{ fontFeatureSettings: getFontFeatureSettings() }}
+            >
+                {characters.map((char, index) => (
+                    <span
+                        key={index}
+                        style={{
+                            color: char.color,
+                            transform: `scale(${char.size}) rotate(${char.rotation}deg)`,
+                            transformOrigin: 'center center',
+                            display: 'inline-block'
+                        }}
+                    >
+                        {char.glyph || char.char}
+                    </span>
+                ))}
             </div>
-             <p className="text-center text-xs text-gray-400 mt-4 opacity-70">{fontName}</p>
+            <p className="text-center text-xs text-gray-400 mt-4 opacity-70">{fontName}</p>
         </div>
     );
 }
