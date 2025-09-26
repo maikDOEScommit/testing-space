@@ -8,6 +8,16 @@ const FONT_CONFIG: Record<string, { woff2: string; className: string }> = {
     'Aboro': { woff2: '/fonts/Aboro.woff2', className: 'font-aboro' },
     'Abind': { woff2: '/fonts/Abind.woff2', className: 'font-abind' },
     'Abang': { woff2: '/fonts/Abang.woff2', className: 'font-abang' },
+    'Cryachy': { woff2: '/fonts/Cryachy.woff2', className: 'font-cryachy' },
+    'Garlic': { woff2: '/fonts/Garlic-Regular.woff2', className: 'font-garlic' },
+    'Grunell': { woff2: '/fonts/Grunell-Regular.woff2', className: 'font-grunell' },
+    'Grunell-Ligature': { woff2: '/fonts/Grunell-Ligature.woff2', className: 'font-grunell-ligature' },
+    'Keilla': { woff2: '/fonts/Keilla.woff2', className: 'font-keilla' },
+    'Lilatia': { woff2: '/fonts/Lilatia.woff2', className: 'font-lilatia' },
+    'Mentol': { woff2: '/fonts/Mentol.woff2', className: 'font-mentol' },
+    'Miggle': { woff2: '/fonts/Miggle.woff2', className: 'font-miggle' },
+    'Rossea': { woff2: '/fonts/Rossea.woff2', className: 'font-rossea' },
+    'Sailor': { woff2: '/fonts/Sailor-Regular.woff2', className: 'font-sailor' },
 };
 
 // Types definieren
@@ -18,6 +28,16 @@ type Character = {
     size: number; // Relative Größe (1.0 = 100%)
     rotation: number; // Rotation in Grad
     glyph?: string; // Alternative Glyph-Darstellung
+    isLigature?: boolean; // Ob es eine Ligatur ist
+    replacesChars?: number; // Wie viele Zeichen ersetzt werden
+};
+
+type DotElement = {
+    id: string;
+    x: number; // Position X in %
+    y: number; // Position Y in %
+    size: number; // Größe
+    color: string;
 };
 
 type FontFeature = {
@@ -35,6 +55,8 @@ type Logo = {
     characters: Character[];
     fontFeatures: FontFeature[];
     selectedCharIndex: number | null;
+    dots: DotElement[];
+    selectedDotId: string | null;
 };
 
 // --- LogoEditor Komponente (vorher in separater Datei) ---
@@ -44,7 +66,6 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     onUpdate: (logo: Logo) => void;
 }) {
     const [logo, setLogo] = useState(initialLogo);
-    const fontClassName = FONT_CONFIG[logo.fontName].className;
 
     useEffect(() => {
         setLogo(initialLogo);
@@ -57,7 +78,58 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     };
 
     const handleCharacterClick = (index: number) => {
-        const updatedLogo = { ...logo, selectedCharIndex: index };
+        const updatedLogo = { ...logo, selectedCharIndex: index, selectedDotId: null };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const handleDotClick = (dotId: string) => {
+        const updatedLogo = { ...logo, selectedDotId: dotId, selectedCharIndex: null };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const addDot = () => {
+        const newDot: DotElement = {
+            id: `dot-${Date.now()}`,
+            x: 50,
+            y: 50,
+            size: 8,
+            color: '#FFFFFF'
+        };
+        const updatedLogo = {
+            ...logo,
+            dots: [...logo.dots, newDot],
+            selectedDotId: newDot.id,
+            selectedCharIndex: null
+        };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const updateDot = (property: keyof DotElement, value: any) => {
+        if (!logo.selectedDotId) return;
+
+        const updatedDots = logo.dots.map(dot =>
+            dot.id === logo.selectedDotId
+                ? { ...dot, [property]: value }
+                : dot
+        );
+
+        const updatedLogo = { ...logo, dots: updatedDots };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const deleteDot = () => {
+        if (!logo.selectedDotId) return;
+
+        const updatedDots = logo.dots.filter(dot => dot.id !== logo.selectedDotId);
+        const updatedLogo = {
+            ...logo,
+            dots: updatedDots,
+            selectedDotId: null
+        };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
     };
@@ -77,13 +149,35 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     };
 
     // Generiere verfügbare Glyphen für den aktuellen Font
-    const getAvailableGlyphs = (fontName: string): string[] => {
+    const getAvailableGlyphs = (fontName: string): Array<{char: string, isLigature: boolean, replacesChars: number}> => {
         const baseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
         const specialChars = '!@#$%^&*()_+-=[]{}|;:\'",.<>?/~`';
         const extendedChars = 'ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
         const symbols = '←→↑↓↔↕↖↗↘↙⇐⇑⇒⇓⇔⇕⇖⇗⇘⇙★☆♠♣♥♦♪♫☀☁☂☃❄';
 
-        return (baseChars + specialChars + extendedChars + symbols).split('');
+        // Standard Zeichen (ersetzen 1 Zeichen)
+        const standardGlyphs = (baseChars + specialChars + extendedChars + symbols)
+            .split('')
+            .map(char => ({ char, isLigature: false, replacesChars: 1 }));
+
+        // Ligaturen (ersetzen 2+ Zeichen) - fontspezifisch
+        const ligatures: Array<{char: string, isLigature: boolean, replacesChars: number}> = [];
+
+        if (fontName === 'Aboro' || fontName === 'Abind' || fontName === 'Abang') {
+            ligatures.push(
+                { char: 'ﬀ', isLigature: true, replacesChars: 2 }, // ff
+                { char: 'ﬁ', isLigature: true, replacesChars: 2 }, // fi
+                { char: 'ﬂ', isLigature: true, replacesChars: 2 }, // fl
+                { char: 'ﬃ', isLigature: true, replacesChars: 3 }, // ffi
+                { char: 'ﬄ', isLigature: true, replacesChars: 3 }, // ffl
+                { char: 'Æ', isLigature: true, replacesChars: 2 }, // AE
+                { char: 'æ', isLigature: true, replacesChars: 2 }, // ae
+                { char: 'Œ', isLigature: true, replacesChars: 2 }, // OE
+                { char: 'œ', isLigature: true, replacesChars: 2 }  // oe
+            );
+        }
+
+        return [...standardGlyphs, ...ligatures];
     };
 
     const toggleFontFeature = (featureTag: string) => {
@@ -117,14 +211,17 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                 <div className="p-6">
                     <h2 className="text-2xl font-bold mb-6 text-center">Logo bearbeiten</h2>
 
-                    {/* Vorschau-Bereich mit klickbaren Buchstaben */}
+                    {/* Vorschau-Bereich mit klickbaren Buchstaben und Punkten */}
                     <div
-                        className="p-8 rounded-lg mb-6 transition-colors duration-300"
+                        className="p-8 rounded-lg mb-6 transition-colors duration-300 relative"
                         style={{ backgroundColor: logo.bgColor }}
                     >
                         <div
-                            className={`${fontClassName} text-6xl text-center break-words cursor-pointer`}
-                            style={{ fontFeatureSettings: getFontFeatureSettings() }}
+                            className={`text-6xl text-center break-words cursor-pointer relative`}
+                            style={{
+                                fontFeatureSettings: getFontFeatureSettings(),
+                                fontFamily: `"${logo.fontName}", sans-serif`
+                            }}
                         >
                             {logo.characters.map((char, index) => (
                                 <span
@@ -146,6 +243,27 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 </span>
                             ))}
                         </div>
+
+                        {/* Punkte */}
+                        {logo.dots.map((dot) => (
+                            <div
+                                key={dot.id}
+                                className={`absolute rounded-full cursor-pointer transition-all duration-200 hover:scale-110 ${
+                                    logo.selectedDotId === dot.id
+                                        ? 'ring-2 ring-blue-500'
+                                        : ''
+                                }`}
+                                style={{
+                                    left: `${dot.x}%`,
+                                    top: `${dot.y}%`,
+                                    width: `${dot.size}px`,
+                                    height: `${dot.size}px`,
+                                    backgroundColor: dot.color,
+                                    transform: 'translate(-50%, -50%)'
+                                }}
+                                onClick={() => handleDotClick(dot.id)}
+                            />
+                        ))}
                     </div>
 
                     {/* Steuerungs-Bereich */}
@@ -249,18 +367,28 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                             Zeichen ändern
                                         </label>
                                         <div className="grid grid-cols-8 gap-1 max-h-32 overflow-y-auto bg-gray-700 rounded-lg p-2">
-                                            {getAvailableGlyphs(logo.fontName).map((glyph, glyphIndex) => (
+                                            {getAvailableGlyphs(logo.fontName).map((glyphData, glyphIndex) => (
                                                 <button
                                                     key={glyphIndex}
-                                                    onClick={() => handleCharacterPropertyChange('glyph', glyph)}
+                                                    onClick={() => {
+                                                        handleCharacterPropertyChange('glyph', glyphData.char);
+                                                        handleCharacterPropertyChange('isLigature', glyphData.isLigature);
+                                                        handleCharacterPropertyChange('replacesChars', glyphData.replacesChars);
+                                                    }}
                                                     className={`w-8 h-8 text-center hover:bg-gray-600 rounded transition-colors ${
-                                                        logo.selectedCharIndex !== null && logo.characters[logo.selectedCharIndex].glyph === glyph
+                                                        logo.selectedCharIndex !== null && logo.characters[logo.selectedCharIndex].glyph === glyphData.char
                                                             ? 'bg-blue-500'
+                                                            : glyphData.isLigature
+                                                            ? 'bg-purple-800'
                                                             : 'bg-gray-800'
                                                     }`}
-                                                    style={{ fontSize: '14px' }}
+                                                    style={{
+                                                        fontSize: '14px',
+                                                        fontFamily: `"${logo.fontName}", sans-serif`
+                                                    }}
+                                                    title={glyphData.isLigature ? `Ligatur (ersetzt ${glyphData.replacesChars} Zeichen)` : 'Standard Zeichen'}
                                                 >
-                                                    {glyph}
+                                                    {glyphData.char}
                                                 </button>
                                             ))}
                                         </div>
@@ -269,32 +397,123 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                             )}
                         </div>
 
-                        {/* Font Features */}
+                        {/* Punkte und Font Features */}
                         <div className="space-y-4">
-                            <h3 className="text-lg font-semibold text-gray-200">
-                                Font Features ({logo.fontName})
-                            </h3>
-                            <div className="space-y-2 max-h-60 overflow-y-auto">
-                                {logo.fontFeatures.map((feature) => (
-                                    <div key={feature.tag} className="flex items-center justify-between bg-gray-700 rounded-lg p-3">
-                                        <div>
-                                            <span className="font-medium text-gray-200">{feature.name}</span>
-                                            <span className="text-xs text-gray-400 ml-2">({feature.tag})</span>
+                            {/* Punkt-Steuerung */}
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-lg font-semibold text-gray-200">Punkte</h3>
+                                    <button
+                                        onClick={addDot}
+                                        className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors"
+                                    >
+                                        + Punkt
+                                    </button>
+                                </div>
+
+                                {logo.selectedDotId && (
+                                    <div className="space-y-3 bg-gray-700 rounded-lg p-3">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-sm font-semibold text-gray-200">Punkt bearbeiten</h4>
+                                            <button
+                                                onClick={deleteDot}
+                                                className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                                            >
+                                                Löschen
+                                            </button>
                                         </div>
-                                        <button
-                                            onClick={() => toggleFontFeature(feature.tag)}
-                                            className={`w-12 h-6 rounded-full transition-colors ${
-                                                feature.enabled
-                                                    ? 'bg-blue-500'
-                                                    : 'bg-gray-600'
-                                            }`}
-                                        >
-                                            <div className={`w-5 h-5 bg-white rounded-full transition-transform ${
-                                                feature.enabled ? 'translate-x-6' : 'translate-x-0.5'
-                                            }`} />
-                                        </button>
+
+                                        {/* Farbe */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">Farbe</label>
+                                            <div className="flex items-center bg-gray-600 rounded px-2">
+                                                <input
+                                                    type="color"
+                                                    value={logo.dots.find(d => d.id === logo.selectedDotId)?.color || '#FFFFFF'}
+                                                    onChange={(e) => updateDot('color', e.target.value)}
+                                                    className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer"
+                                                />
+                                                <span className="pl-2 font-mono text-xs">
+                                                    {logo.dots.find(d => d.id === logo.selectedDotId)?.color}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Größe */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">
+                                                Größe: {logo.dots.find(d => d.id === logo.selectedDotId)?.size}px
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min="2"
+                                                max="30"
+                                                value={logo.dots.find(d => d.id === logo.selectedDotId)?.size || 8}
+                                                onChange={(e) => updateDot('size', parseInt(e.target.value))}
+                                                className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {/* Position */}
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-300 mb-1">
+                                                    X: {logo.dots.find(d => d.id === logo.selectedDotId)?.x}%
+                                                </label>
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    value={logo.dots.find(d => d.id === logo.selectedDotId)?.x || 50}
+                                                    onChange={(e) => updateDot('x', parseInt(e.target.value))}
+                                                    className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-300 mb-1">
+                                                    Y: {logo.dots.find(d => d.id === logo.selectedDotId)?.y}%
+                                                </label>
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    value={logo.dots.find(d => d.id === logo.selectedDotId)?.y || 50}
+                                                    onChange={(e) => updateDot('y', parseInt(e.target.value))}
+                                                    className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
-                                ))}
+                                )}
+                            </div>
+
+                            {/* Font Features */}
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-200 mb-3">
+                                    Font Features ({logo.fontName})
+                                </h3>
+                                <div className="space-y-2 max-h-40 overflow-y-auto">
+                                    {logo.fontFeatures.map((feature) => (
+                                        <div key={feature.tag} className="flex items-center justify-between bg-gray-700 rounded-lg p-2">
+                                            <div>
+                                                <span className="font-medium text-gray-200 text-sm">{feature.name}</span>
+                                                <span className="text-xs text-gray-400 ml-2">({feature.tag})</span>
+                                            </div>
+                                            <button
+                                                onClick={() => toggleFontFeature(feature.tag)}
+                                                className={`w-10 h-5 rounded-full transition-colors ${
+                                                    feature.enabled
+                                                        ? 'bg-blue-500'
+                                                        : 'bg-gray-600'
+                                                }`}
+                                            >
+                                                <div className={`w-4 h-4 bg-white rounded-full transition-transform ${
+                                                    feature.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                                                }`} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -338,7 +557,9 @@ export default function HomePage() {
             index,
             size: 1.0,
             rotation: 0,
-            glyph: char
+            glyph: char,
+            isLigature: false,
+            replacesChars: 1
         }));
     };
 
@@ -381,7 +602,9 @@ export default function HomePage() {
                 bgColor: '#1F2937',
                 characters: createCharactersFromText(currentText, defaultColor),
                 fontFeatures: getDefaultFontFeatures(fontName),
-                selectedCharIndex: null
+                selectedCharIndex: null,
+                dots: [],
+                selectedDotId: null
             });
         }
         setLogos(generated);
@@ -451,8 +674,7 @@ function LogoCard({ logo, onEdit }: {
     logo: Logo;
     onEdit: () => void;
 }) {
-    const { fontName, bgColor, characters, fontFeatures } = logo;
-    const fontClassName = FONT_CONFIG[fontName].className;
+    const { fontName, bgColor, characters, fontFeatures, dots } = logo;
 
     const getFontFeatureSettings = () => {
         return fontFeatures
@@ -463,12 +685,15 @@ function LogoCard({ logo, onEdit }: {
     return (
         <div
             onClick={onEdit}
-            className="p-8 rounded-lg cursor-pointer transform hover:scale-105 transition-all duration-300"
+            className="p-8 rounded-lg cursor-pointer transform hover:scale-105 transition-all duration-300 relative"
             style={{ backgroundColor: bgColor }}
         >
             <div
-                className={`${fontClassName} text-5xl text-center break-words`}
-                style={{ fontFeatureSettings: getFontFeatureSettings() }}
+                className={`text-5xl text-center break-words relative`}
+                style={{
+                    fontFeatureSettings: getFontFeatureSettings(),
+                    fontFamily: `"${fontName}", sans-serif`
+                }}
             >
                 {characters.map((char, index) => (
                     <span
@@ -484,6 +709,23 @@ function LogoCard({ logo, onEdit }: {
                     </span>
                 ))}
             </div>
+
+            {/* Punkte in der Vorschau */}
+            {dots.map((dot) => (
+                <div
+                    key={dot.id}
+                    className="absolute rounded-full"
+                    style={{
+                        left: `${dot.x}%`,
+                        top: `${dot.y}%`,
+                        width: `${dot.size}px`,
+                        height: `${dot.size}px`,
+                        backgroundColor: dot.color,
+                        transform: 'translate(-50%, -50%)'
+                    }}
+                />
+            ))}
+
             <p className="text-center text-xs text-gray-400 mt-4 opacity-70">{fontName}</p>
         </div>
     );
