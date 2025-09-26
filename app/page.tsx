@@ -40,6 +40,16 @@ type DotElement = {
     color: string;
 };
 
+type LineElement = {
+    id: string;
+    x1: number; // Start X in %
+    y1: number; // Start Y in %
+    x2: number; // End X in %
+    y2: number; // End Y in %
+    width: number; // Linienstärke
+    color: string;
+};
+
 type FontFeature = {
     tag: string;
     name: string;
@@ -57,6 +67,8 @@ type Logo = {
     selectedCharIndex: number | null;
     dots: DotElement[];
     selectedDotId: string | null;
+    lines: LineElement[];
+    selectedLineId: string | null;
 };
 
 // --- LogoEditor Komponente (vorher in separater Datei) ---
@@ -78,13 +90,19 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     };
 
     const handleCharacterClick = (index: number) => {
-        const updatedLogo = { ...logo, selectedCharIndex: index, selectedDotId: null };
+        const updatedLogo = { ...logo, selectedCharIndex: index, selectedDotId: null, selectedLineId: null };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
     };
 
     const handleDotClick = (dotId: string) => {
-        const updatedLogo = { ...logo, selectedDotId: dotId, selectedCharIndex: null };
+        const updatedLogo = { ...logo, selectedDotId: dotId, selectedCharIndex: null, selectedLineId: null };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const handleLineClick = (lineId: string) => {
+        const updatedLogo = { ...logo, selectedLineId: lineId, selectedCharIndex: null, selectedDotId: null };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
     };
@@ -101,7 +119,8 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             ...logo,
             dots: [...logo.dots, newDot],
             selectedDotId: newDot.id,
-            selectedCharIndex: null
+            selectedCharIndex: null,
+            selectedLineId: null
         };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
@@ -129,6 +148,54 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             ...logo,
             dots: updatedDots,
             selectedDotId: null
+        };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const addLine = () => {
+        const newLine: LineElement = {
+            id: `line-${Date.now()}`,
+            x1: 20,
+            y1: 50,
+            x2: 80,
+            y2: 50,
+            width: 2,
+            color: '#FFFFFF'
+        };
+        const updatedLogo = {
+            ...logo,
+            lines: [...logo.lines, newLine],
+            selectedLineId: newLine.id,
+            selectedCharIndex: null,
+            selectedDotId: null
+        };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const updateLine = (property: keyof LineElement, value: any) => {
+        if (!logo.selectedLineId) return;
+
+        const updatedLines = logo.lines.map(line =>
+            line.id === logo.selectedLineId
+                ? { ...line, [property]: value }
+                : line
+        );
+
+        const updatedLogo = { ...logo, lines: updatedLines };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const deleteLine = () => {
+        if (!logo.selectedLineId) return;
+
+        const updatedLines = logo.lines.filter(line => line.id !== logo.selectedLineId);
+        const updatedLogo = {
+            ...logo,
+            lines: updatedLines,
+            selectedLineId: null
         };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
@@ -264,6 +331,48 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 onClick={() => handleDotClick(dot.id)}
                             />
                         ))}
+
+                        {/* Linien */}
+                        {logo.lines.map((line) => (
+                            <svg
+                                key={line.id}
+                                className="absolute inset-0 w-full h-full pointer-events-none"
+                                style={{ zIndex: 1 }}
+                            >
+                                <line
+                                    x1={`${line.x1}%`}
+                                    y1={`${line.y1}%`}
+                                    x2={`${line.x2}%`}
+                                    y2={`${line.y2}%`}
+                                    stroke={line.color}
+                                    strokeWidth={line.width}
+                                    className={`cursor-pointer pointer-events-auto transition-all duration-200 hover:opacity-80 ${
+                                        logo.selectedLineId === line.id
+                                            ? 'drop-shadow-lg'
+                                            : ''
+                                    }`}
+                                    onClick={() => handleLineClick(line.id)}
+                                />
+                                {logo.selectedLineId === line.id && (
+                                    <>
+                                        <circle
+                                            cx={`${line.x1}%`}
+                                            cy={`${line.y1}%`}
+                                            r="4"
+                                            fill="blue"
+                                            className="pointer-events-none"
+                                        />
+                                        <circle
+                                            cx={`${line.x2}%`}
+                                            cy={`${line.y2}%`}
+                                            r="4"
+                                            fill="blue"
+                                            className="pointer-events-none"
+                                        />
+                                    </>
+                                )}
+                            </svg>
+                        ))}
                     </div>
 
                     {/* Steuerungs-Bereich */}
@@ -397,18 +506,26 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                             )}
                         </div>
 
-                        {/* Punkte und Font Features */}
+                        {/* Elemente und Font Features */}
                         <div className="space-y-4">
-                            {/* Punkt-Steuerung */}
+                            {/* Punkte und Linien Steuerung */}
                             <div>
                                 <div className="flex items-center justify-between mb-3">
-                                    <h3 className="text-lg font-semibold text-gray-200">Punkte</h3>
-                                    <button
-                                        onClick={addDot}
-                                        className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors"
-                                    >
-                                        + Punkt
-                                    </button>
+                                    <h3 className="text-lg font-semibold text-gray-200">Elemente</h3>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={addDot}
+                                            className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors"
+                                        >
+                                            + Punkt
+                                        </button>
+                                        <button
+                                            onClick={addLine}
+                                            className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 transition-colors"
+                                        >
+                                            + Linie
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {logo.selectedDotId && (
@@ -481,6 +598,117 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                                     onChange={(e) => updateDot('y', parseInt(e.target.value))}
                                                     className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
                                                 />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {logo.selectedLineId && (
+                                    <div className="space-y-3 bg-gray-700 rounded-lg p-3">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-sm font-semibold text-gray-200">Linie bearbeiten</h4>
+                                            <button
+                                                onClick={deleteLine}
+                                                className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                                            >
+                                                Löschen
+                                            </button>
+                                        </div>
+
+                                        {/* Farbe */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">Farbe</label>
+                                            <div className="flex items-center bg-gray-600 rounded px-2">
+                                                <input
+                                                    type="color"
+                                                    value={logo.lines.find(l => l.id === logo.selectedLineId)?.color || '#FFFFFF'}
+                                                    onChange={(e) => updateLine('color', e.target.value)}
+                                                    className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer"
+                                                />
+                                                <span className="pl-2 font-mono text-xs">
+                                                    {logo.lines.find(l => l.id === logo.selectedLineId)?.color}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Linienstärke */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">
+                                                Stärke: {logo.lines.find(l => l.id === logo.selectedLineId)?.width}px
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="10"
+                                                value={logo.lines.find(l => l.id === logo.selectedLineId)?.width || 2}
+                                                onChange={(e) => updateLine('width', parseInt(e.target.value))}
+                                                className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {/* Position Start */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">Start Position</label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs text-gray-400 mb-1">
+                                                        X1: {logo.lines.find(l => l.id === logo.selectedLineId)?.x1}%
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="100"
+                                                        value={logo.lines.find(l => l.id === logo.selectedLineId)?.x1 || 20}
+                                                        onChange={(e) => updateLine('x1', parseInt(e.target.value))}
+                                                        className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-400 mb-1">
+                                                        Y1: {logo.lines.find(l => l.id === logo.selectedLineId)?.y1}%
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="100"
+                                                        value={logo.lines.find(l => l.id === logo.selectedLineId)?.y1 || 50}
+                                                        onChange={(e) => updateLine('y1', parseInt(e.target.value))}
+                                                        className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Position End */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">End Position</label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs text-gray-400 mb-1">
+                                                        X2: {logo.lines.find(l => l.id === logo.selectedLineId)?.x2}%
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="100"
+                                                        value={logo.lines.find(l => l.id === logo.selectedLineId)?.x2 || 80}
+                                                        onChange={(e) => updateLine('x2', parseInt(e.target.value))}
+                                                        className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-400 mb-1">
+                                                        Y2: {logo.lines.find(l => l.id === logo.selectedLineId)?.y2}%
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="100"
+                                                        value={logo.lines.find(l => l.id === logo.selectedLineId)?.y2 || 50}
+                                                        onChange={(e) => updateLine('y2', parseInt(e.target.value))}
+                                                        className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -604,7 +832,9 @@ export default function HomePage() {
                 fontFeatures: getDefaultFontFeatures(fontName),
                 selectedCharIndex: null,
                 dots: [],
-                selectedDotId: null
+                selectedDotId: null,
+                lines: [],
+                selectedLineId: null
             });
         }
         setLogos(generated);
@@ -674,7 +904,7 @@ function LogoCard({ logo, onEdit }: {
     logo: Logo;
     onEdit: () => void;
 }) {
-    const { fontName, bgColor, characters, fontFeatures, dots } = logo;
+    const { fontName, bgColor, characters, fontFeatures, dots, lines } = logo;
 
     const getFontFeatureSettings = () => {
         return fontFeatures
@@ -724,6 +954,23 @@ function LogoCard({ logo, onEdit }: {
                         transform: 'translate(-50%, -50%)'
                     }}
                 />
+            ))}
+
+            {/* Linien in der Vorschau */}
+            {lines.map((line) => (
+                <svg
+                    key={line.id}
+                    className="absolute inset-0 w-full h-full pointer-events-none"
+                >
+                    <line
+                        x1={`${line.x1}%`}
+                        y1={`${line.y1}%`}
+                        x2={`${line.x2}%`}
+                        y2={`${line.y2}%`}
+                        stroke={line.color}
+                        strokeWidth={line.width}
+                    />
+                </svg>
             ))}
 
             <p className="text-center text-xs text-gray-400 mt-4 opacity-70">{fontName}</p>
