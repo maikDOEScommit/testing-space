@@ -38,6 +38,7 @@ type DotElement = {
     y: number; // Position Y in %
     size: number; // Größe
     color: string;
+    isEraser: boolean; // Radier-Modus
 };
 
 type LineElement = {
@@ -48,6 +49,7 @@ type LineElement = {
     y2: number; // End Y in %
     width: number; // Linienstärke
     color: string;
+    isEraser: boolean; // Radier-Modus
 };
 
 type FontFeature = {
@@ -62,6 +64,7 @@ type Logo = {
     fontName: string;
     textColor: string;
     bgColor: string;
+    bgGradient: string | null; // CSS Gradient String oder null für solid color
     characters: Character[];
     fontFeatures: FontFeature[];
     selectedCharIndex: number | null;
@@ -83,10 +86,96 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
         setLogo(initialLogo);
     }, [initialLogo]);
 
-    const handleColorChange = (type: string, value: string) => {
-        const updatedLogo = { ...logo, [type]: value };
+    // Aktualisiert alle Zeichen-Farben basierend auf der globalen Textfarbe
+    const updateAllCharacterColors = (logo: Logo, newTextColor: string): Logo => {
+        const updatedCharacters = logo.characters.map(char => ({ ...char, color: newTextColor }));
+        return { ...logo, characters: updatedCharacters };
+    };
+
+    const handleColorChange = (type: string, value: string | null) => {
+        if (type === 'textColor' && value) {
+            // Spezielle Behandlung für Textfarbe - aktualisiert alle Zeichen
+            const updatedLogo = updateAllCharacterColors({ ...logo, textColor: value }, value);
+            setLogo(updatedLogo);
+            onUpdate(updatedLogo);
+        } else {
+            const updatedLogo = { ...logo, [type]: value };
+            setLogo(updatedLogo);
+            onUpdate(updatedLogo);
+        }
+    };
+
+    const handleGradientColorChange = (colorIndex: number, color: string) => {
+        if (!logo.bgGradient) return;
+
+        const gradientData = parseGradient(logo.bgGradient);
+        gradientData.colors[colorIndex] = color;
+
+        const newGradient = buildGradient(gradientData);
+        const updatedLogo = { ...logo, bgGradient: newGradient };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
+    };
+
+    const addGradientColor = () => {
+        if (!logo.bgGradient) return;
+
+        const gradientData = parseGradient(logo.bgGradient);
+        if (gradientData.colors.length < 4) {
+            gradientData.colors.push('#ffffff');
+            const newGradient = buildGradient(gradientData);
+            const updatedLogo = { ...logo, bgGradient: newGradient };
+            setLogo(updatedLogo);
+            onUpdate(updatedLogo);
+        }
+    };
+
+    const removeGradientColor = (colorIndex: number) => {
+        if (!logo.bgGradient) return;
+
+        const gradientData = parseGradient(logo.bgGradient);
+        if (gradientData.colors.length > 2) {
+            gradientData.colors.splice(colorIndex, 1);
+            const newGradient = buildGradient(gradientData);
+            const updatedLogo = { ...logo, bgGradient: newGradient };
+            setLogo(updatedLogo);
+            onUpdate(updatedLogo);
+        }
+    };
+
+    const handleGradientDirectionChange = (direction: string) => {
+        if (!logo.bgGradient) return;
+
+        const gradientData = parseGradient(logo.bgGradient);
+        gradientData.direction = direction;
+
+        const newGradient = buildGradient(gradientData);
+        const updatedLogo = { ...logo, bgGradient: newGradient };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const createNewGradient = () => {
+        const newGradient = 'linear-gradient(45deg, #667eea, #764ba2)';
+        const updatedLogo = { ...logo, bgGradient: newGradient };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const parseGradient = (gradientString: string) => {
+        // Parse CSS gradient string
+        const matches = gradientString.match(/linear-gradient\(([^,]+),\s*(.+)\)/);
+        if (!matches) return { direction: '45deg', colors: ['#667eea', '#764ba2'] };
+
+        const direction = matches[1].trim();
+        const colorPart = matches[2];
+        const colors = colorPart.split(',').map(c => c.trim());
+
+        return { direction, colors };
+    };
+
+    const buildGradient = (gradientData: { direction: string; colors: string[] }) => {
+        return `linear-gradient(${gradientData.direction}, ${gradientData.colors.join(', ')})`;
     };
 
     const handleCharacterClick = (index: number) => {
@@ -113,7 +202,8 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             x: 50,
             y: 50,
             size: 8,
-            color: '#FFFFFF'
+            color: '#FFFFFF',
+            isEraser: false
         };
         const updatedLogo = {
             ...logo,
@@ -161,7 +251,8 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             x2: 80,
             y2: 50,
             width: 2,
-            color: '#FFFFFF'
+            color: '#FFFFFF',
+            isEraser: false
         };
         const updatedLogo = {
             ...logo,
@@ -281,7 +372,9 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                     {/* Vorschau-Bereich mit klickbaren Buchstaben und Punkten */}
                     <div
                         className="p-8 rounded-lg mb-6 transition-colors duration-300 relative"
-                        style={{ backgroundColor: logo.bgColor }}
+                        style={{
+                            background: logo.bgGradient || logo.bgColor
+                        }}
                     >
                         <div
                             className={`text-6xl text-center break-words cursor-pointer relative`}
@@ -319,13 +412,17 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     logo.selectedDotId === dot.id
                                         ? 'ring-2 ring-blue-500'
                                         : ''
+                                } ${
+                                    dot.isEraser ? 'opacity-50' : ''
                                 }`}
                                 style={{
                                     left: `${dot.x}%`,
                                     top: `${dot.y}%`,
                                     width: `${dot.size}px`,
                                     height: `${dot.size}px`,
-                                    backgroundColor: dot.color,
+                                    backgroundColor: dot.isEraser ? 'transparent' : dot.color,
+                                    border: dot.isEraser ? `2px dashed ${dot.color}` : 'none',
+                                    mixBlendMode: dot.isEraser ? 'difference' : 'normal',
                                     transform: 'translate(-50%, -50%)'
                                 }}
                                 onClick={() => handleDotClick(dot.id)}
@@ -346,6 +443,11 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     y2={`${line.y2}%`}
                                     stroke={line.color}
                                     strokeWidth={line.width}
+                                    strokeDasharray={line.isEraser ? '5,5' : 'none'}
+                                    opacity={line.isEraser ? 0.7 : 1}
+                                    style={{
+                                        mixBlendMode: line.isEraser ? 'difference' : 'normal'
+                                    }}
                                     className={`cursor-pointer pointer-events-auto transition-all duration-200 hover:opacity-80 ${
                                         logo.selectedLineId === line.id
                                             ? 'drop-shadow-lg'
@@ -397,18 +499,98 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     </div>
                                 </div>
                                 <div>
-                                    <label htmlFor="bgColor" className="block text-sm font-medium text-gray-300 mb-2">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
                                         Hintergrund
                                     </label>
-                                    <div className="flex items-center bg-gray-700 rounded-lg px-3">
-                                        <input
-                                            id="bgColor"
-                                            type="color"
-                                            value={logo.bgColor}
-                                            onChange={(e) => handleColorChange('bgColor', e.target.value)}
-                                            className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
-                                        />
-                                        <span className="pl-3 font-mono text-sm">{logo.bgColor}</span>
+                                    <div className="space-y-2">
+                                        {/* Solid Color */}
+                                        <div className="flex items-center bg-gray-700 rounded-lg px-3">
+                                            <input
+                                                type="color"
+                                                value={logo.bgColor}
+                                                onChange={(e) => {
+                                                    handleColorChange('bgColor', e.target.value);
+                                                    handleColorChange('bgGradient', null);
+                                                }}
+                                                className="w-8 h-8 p-0 border-none bg-transparent cursor-pointer"
+                                            />
+                                            <span className="pl-3 font-mono text-sm">{logo.bgColor}</span>
+                                        </div>
+
+                                        {/* Dynamic Gradient Creator */}
+                                        <div className="space-y-3">
+                                            {!logo.bgGradient ? (
+                                                <button
+                                                    onClick={createNewGradient}
+                                                    className="w-full py-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors"
+                                                >
+                                                    + Gradient erstellen
+                                                </button>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    {/* Direction Control */}
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-300 mb-1">Richtung</label>
+                                                        <select
+                                                            value={logo.bgGradient ? parseGradient(logo.bgGradient).direction : '45deg'}
+                                                            onChange={(e) => handleGradientDirectionChange(e.target.value)}
+                                                            className="w-full bg-gray-600 text-white text-xs rounded px-2 py-1"
+                                                        >
+                                                            <option value="45deg">↗ Diagonal (45°)</option>
+                                                            <option value="90deg">→ Horizontal</option>
+                                                            <option value="180deg">↓ Vertikal</option>
+                                                            <option value="135deg">↘ Diagonal (135°)</option>
+                                                            <option value="0deg">↑ Nach oben</option>
+                                                            <option value="225deg">↙ Diagonal (225°)</option>
+                                                            <option value="270deg">← Nach links</option>
+                                                            <option value="315deg">↖ Diagonal (315°)</option>
+                                                        </select>
+                                                    </div>
+
+                                                    {/* Color Controls */}
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-300 mb-1">Farben</label>
+                                                        <div className="space-y-1">
+                                                            {logo.bgGradient ? parseGradient(logo.bgGradient).colors.map((color, colorIndex) => (
+                                                                <div key={colorIndex} className="flex items-center gap-2">
+                                                                    <input
+                                                                        type="color"
+                                                                        value={color}
+                                                                        onChange={(e) => handleGradientColorChange(colorIndex, e.target.value)}
+                                                                        className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer rounded"
+                                                                    />
+                                                                    <span className="font-mono text-xs flex-1">{color}</span>
+                                                                    {logo.bgGradient && parseGradient(logo.bgGradient).colors.length > 2 && (
+                                                                        <button
+                                                                            onClick={() => removeGradientColor(colorIndex)}
+                                                                            className="text-red-400 hover:text-red-300 text-xs"
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            )) : null}
+                                                        </div>
+
+                                                        {logo.bgGradient && parseGradient(logo.bgGradient).colors.length < 4 && (
+                                                            <button
+                                                                onClick={addGradientColor}
+                                                                className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+                                                            >
+                                                                + Farbe hinzufügen
+                                                            </button>
+                                                        )}
+                                                    </div>
+
+                                                    <button
+                                                        onClick={() => handleColorChange('bgGradient', null)}
+                                                        className="text-xs text-gray-400 hover:text-white transition-colors"
+                                                    >
+                                                        Gradient entfernen
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -479,10 +661,14 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                             {getAvailableGlyphs(logo.fontName).map((glyphData, glyphIndex) => (
                                                 <button
                                                     key={glyphIndex}
-                                                    onClick={() => {
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
                                                         handleCharacterPropertyChange('glyph', glyphData.char);
-                                                        handleCharacterPropertyChange('isLigature', glyphData.isLigature);
-                                                        handleCharacterPropertyChange('replacesChars', glyphData.replacesChars);
+                                                        if (glyphData.isLigature) {
+                                                            handleCharacterPropertyChange('isLigature', glyphData.isLigature);
+                                                            handleCharacterPropertyChange('replacesChars', glyphData.replacesChars);
+                                                        }
                                                     }}
                                                     className={`w-8 h-8 text-center hover:bg-gray-600 rounded transition-colors ${
                                                         logo.selectedCharIndex !== null && logo.characters[logo.selectedCharIndex].glyph === glyphData.char
@@ -532,12 +718,24 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     <div className="space-y-3 bg-gray-700 rounded-lg p-3">
                                         <div className="flex items-center justify-between">
                                             <h4 className="text-sm font-semibold text-gray-200">Punkt bearbeiten</h4>
-                                            <button
-                                                onClick={deleteDot}
-                                                className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
-                                            >
-                                                Löschen
-                                            </button>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => updateDot('isEraser', !logo.dots.find(d => d.id === logo.selectedDotId)?.isEraser)}
+                                                    className={`px-2 py-1 text-white rounded text-xs transition-colors ${
+                                                        logo.dots.find(d => d.id === logo.selectedDotId)?.isEraser
+                                                            ? 'bg-orange-500 hover:bg-orange-600'
+                                                            : 'bg-blue-500 hover:bg-blue-600'
+                                                    }`}
+                                                >
+                                                    {logo.dots.find(d => d.id === logo.selectedDotId)?.isEraser ? '🧽' : '🖊️'}
+                                                </button>
+                                                <button
+                                                    onClick={deleteDot}
+                                                    className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
                                         </div>
 
                                         {/* Farbe */}
@@ -607,12 +805,24 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     <div className="space-y-3 bg-gray-700 rounded-lg p-3">
                                         <div className="flex items-center justify-between">
                                             <h4 className="text-sm font-semibold text-gray-200">Linie bearbeiten</h4>
-                                            <button
-                                                onClick={deleteLine}
-                                                className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
-                                            >
-                                                Löschen
-                                            </button>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => updateLine('isEraser', !logo.lines.find(l => l.id === logo.selectedLineId)?.isEraser)}
+                                                    className={`px-2 py-1 text-white rounded text-xs transition-colors ${
+                                                        logo.lines.find(l => l.id === logo.selectedLineId)?.isEraser
+                                                            ? 'bg-orange-500 hover:bg-orange-600'
+                                                            : 'bg-blue-500 hover:bg-blue-600'
+                                                    }`}
+                                                >
+                                                    {logo.lines.find(l => l.id === logo.selectedLineId)?.isEraser ? '🧽' : '🖊️'}
+                                                </button>
+                                                <button
+                                                    onClick={deleteLine}
+                                                    className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
                                         </div>
 
                                         {/* Farbe */}
@@ -777,11 +987,11 @@ export default function HomePage() {
         return data;
     }, [fontCache]);
 
-    // Erstellt die Zeichen-Array aus Text
-    const createCharactersFromText = (text: string, color: string): Character[] => {
+    // Erstellt die Zeichen-Array aus Text - aktualisiert Farben wenn nötig
+    const createCharactersFromText = (text: string, textColor: string): Character[] => {
         return text.split('').map((char, index) => ({
             char,
-            color,
+            color: textColor,
             index,
             size: 1.0,
             rotation: 0,
@@ -828,6 +1038,7 @@ export default function HomePage() {
                 fontName,
                 textColor: defaultColor,
                 bgColor: '#1F2937',
+                bgGradient: null,
                 characters: createCharactersFromText(currentText, defaultColor),
                 fontFeatures: getDefaultFontFeatures(fontName),
                 selectedCharIndex: null,
@@ -904,7 +1115,7 @@ function LogoCard({ logo, onEdit }: {
     logo: Logo;
     onEdit: () => void;
 }) {
-    const { fontName, bgColor, characters, fontFeatures, dots, lines } = logo;
+    const { bgColor, bgGradient, characters, fontFeatures, dots, lines } = logo;
 
     const getFontFeatureSettings = () => {
         return fontFeatures
@@ -916,13 +1127,15 @@ function LogoCard({ logo, onEdit }: {
         <div
             onClick={onEdit}
             className="p-8 rounded-lg cursor-pointer transform hover:scale-105 transition-all duration-300 relative"
-            style={{ backgroundColor: bgColor }}
+            style={{
+                background: bgGradient || bgColor
+            }}
         >
             <div
                 className={`text-5xl text-center break-words relative`}
                 style={{
                     fontFeatureSettings: getFontFeatureSettings(),
-                    fontFamily: `"${fontName}", sans-serif`
+                    fontFamily: `"${logo.fontName}", sans-serif`
                 }}
             >
                 {characters.map((char, index) => (
@@ -944,13 +1157,17 @@ function LogoCard({ logo, onEdit }: {
             {dots.map((dot) => (
                 <div
                     key={dot.id}
-                    className="absolute rounded-full"
+                    className={`absolute rounded-full ${
+                        dot.isEraser ? 'opacity-50' : ''
+                    }`}
                     style={{
                         left: `${dot.x}%`,
                         top: `${dot.y}%`,
                         width: `${dot.size}px`,
                         height: `${dot.size}px`,
-                        backgroundColor: dot.color,
+                        backgroundColor: dot.isEraser ? 'transparent' : dot.color,
+                        border: dot.isEraser ? `1px dashed ${dot.color}` : 'none',
+                        mixBlendMode: dot.isEraser ? 'difference' : 'normal',
                         transform: 'translate(-50%, -50%)'
                     }}
                 />
@@ -969,11 +1186,17 @@ function LogoCard({ logo, onEdit }: {
                         y2={`${line.y2}%`}
                         stroke={line.color}
                         strokeWidth={line.width}
+                        strokeDasharray={line.isEraser ? '3,3' : 'none'}
+                        opacity={line.isEraser ? 0.7 : 1}
+                        style={{
+                            mixBlendMode: line.isEraser ? 'difference' : 'normal'
+                        }}
+                        className=""
                     />
                 </svg>
             ))}
 
-            <p className="text-center text-xs text-gray-400 mt-4 opacity-70">{fontName}</p>
+            <p className="text-center text-xs text-gray-400 mt-4 opacity-70">{logo.fontName}</p>
         </div>
     );
 }
