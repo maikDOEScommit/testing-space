@@ -38,7 +38,14 @@ type DotElement = {
     y: number; // Position Y in %
     size: number; // Größe
     color: string;
+    borderRadius: number; // Border Radius in % (100 = Kreis, 0 = Quadrat)
+    rotation: number; // Rotation in Grad
     isEraser: boolean; // Radier-Modus
+};
+
+type VectorPoint = {
+    x: number; // Position X in %
+    y: number; // Position Y in %
 };
 
 type LineElement = {
@@ -49,6 +56,7 @@ type LineElement = {
     y2: number; // End Y in %
     width: number; // Linienstärke
     color: string;
+    vectorPoints: VectorPoint[]; // Vektorpunkte für gekrümmte Linien
     isEraser: boolean; // Radier-Modus
 };
 
@@ -203,6 +211,8 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             y: 50,
             size: 8,
             color: '#FFFFFF',
+            borderRadius: 100, // 100% = perfekter Kreis
+            rotation: 0, // Keine Rotation
             isEraser: false
         };
         const updatedLogo = {
@@ -252,6 +262,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             y2: 50,
             width: 2,
             color: '#FFFFFF',
+            vectorPoints: [], // Leere Liste für gerade Linie
             isEraser: false
         };
         const updatedLogo = {
@@ -290,6 +301,96 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
         };
         setLogo(updatedLogo);
         onUpdate(updatedLogo);
+    };
+
+    const addVectorPoint = () => {
+        if (!logo.selectedLineId) return;
+
+        const selectedLine = logo.lines.find(l => l.id === logo.selectedLineId);
+        if (!selectedLine) return;
+
+        // Neuen Vektorpunkt in der Mitte zwischen Start und Ende hinzufügen
+        const midX = (selectedLine.x1 + selectedLine.x2) / 2;
+        const midY = (selectedLine.y1 + selectedLine.y2) / 2;
+
+        const newVectorPoint: VectorPoint = { x: midX, y: midY };
+
+        const updatedLines = logo.lines.map(line =>
+            line.id === logo.selectedLineId
+                ? { ...line, vectorPoints: [...line.vectorPoints, newVectorPoint] }
+                : line
+        );
+
+        const updatedLogo = { ...logo, lines: updatedLines };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const removeVectorPoint = (pointIndex: number) => {
+        if (!logo.selectedLineId) return;
+
+        const updatedLines = logo.lines.map(line =>
+            line.id === logo.selectedLineId
+                ? { ...line, vectorPoints: line.vectorPoints.filter((_, index) => index !== pointIndex) }
+                : line
+        );
+
+        const updatedLogo = { ...logo, lines: updatedLines };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const updateVectorPoint = (pointIndex: number, property: keyof VectorPoint, value: number) => {
+        if (!logo.selectedLineId) return;
+
+        const updatedLines = logo.lines.map(line =>
+            line.id === logo.selectedLineId
+                ? {
+                    ...line,
+                    vectorPoints: line.vectorPoints.map((point, index) =>
+                        index === pointIndex ? { ...point, [property]: value } : point
+                    )
+                }
+                : line
+        );
+
+        const updatedLogo = { ...logo, lines: updatedLines };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    // Erstellt einen SVG-Pfad aus Start-, End- und Vektorpunkten
+    const createSVGPath = (line: LineElement): string => {
+        if (line.vectorPoints.length === 0) {
+            // Gerade Linie
+            return `M ${line.x1} ${line.y1} L ${line.x2} ${line.y2}`;
+        } else {
+            // Gekrümmte Linie mit Vektorpunkten
+            let path = `M ${line.x1} ${line.y1}`;
+
+            if (line.vectorPoints.length === 1) {
+                // Quadratische Kurve mit einem Kontrollpunkt
+                const cp = line.vectorPoints[0];
+                path += ` Q ${cp.x} ${cp.y} ${line.x2} ${line.y2}`;
+            } else {
+                // Kubische Bezier-Kurve oder mehrere Segmente
+                for (let i = 0; i < line.vectorPoints.length; i++) {
+                    const cp = line.vectorPoints[i];
+                    if (i === line.vectorPoints.length - 1) {
+                        // Letzter Punkt -> zur Endposition
+                        path += ` Q ${cp.x} ${cp.y} ${line.x2} ${line.y2}`;
+                    } else {
+                        // Zwischen-Vektorpunkt
+                        const nextCp = line.vectorPoints[i + 1];
+                        const midX = (cp.x + nextCp.x) / 2;
+                        const midY = (cp.y + nextCp.y) / 2;
+                        path += ` Q ${cp.x} ${cp.y} ${midX} ${midY}`;
+                    }
+                }
+            }
+
+            return path;
+        }
     };
 
     const handleCharacterPropertyChange = (property: keyof Character, value: any) => {
@@ -408,7 +509,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                         {logo.dots.map((dot) => (
                             <div
                                 key={dot.id}
-                                className={`absolute rounded-full cursor-pointer transition-all duration-200 hover:scale-110 ${
+                                className={`absolute cursor-pointer transition-all duration-200 hover:scale-110 ${
                                     logo.selectedDotId === dot.id
                                         ? 'ring-2 ring-blue-500'
                                         : ''
@@ -422,8 +523,9 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     height: `${dot.size}px`,
                                     backgroundColor: dot.isEraser ? 'transparent' : dot.color,
                                     border: dot.isEraser ? `2px dashed ${dot.color}` : 'none',
+                                    borderRadius: `${dot.borderRadius}%`,
                                     mixBlendMode: dot.isEraser ? 'difference' : 'normal',
-                                    transform: 'translate(-50%, -50%)'
+                                    transform: `translate(-50%, -50%) rotate(${dot.rotation}deg)`
                                 }}
                                 onClick={() => handleDotClick(dot.id)}
                             />
@@ -435,16 +537,16 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 key={line.id}
                                 className="absolute inset-0 w-full h-full pointer-events-none"
                                 style={{ zIndex: 1 }}
+                                viewBox="0 0 100 100"
+                                preserveAspectRatio="none"
                             >
-                                <line
-                                    x1={`${line.x1}%`}
-                                    y1={`${line.y1}%`}
-                                    x2={`${line.x2}%`}
-                                    y2={`${line.y2}%`}
+                                <path
+                                    d={createSVGPath(line)}
                                     stroke={line.color}
                                     strokeWidth={line.width}
                                     strokeDasharray={line.isEraser ? '5,5' : 'none'}
                                     opacity={line.isEraser ? 0.7 : 1}
+                                    fill="none"
                                     style={{
                                         mixBlendMode: line.isEraser ? 'difference' : 'normal'
                                     }}
@@ -457,6 +559,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 />
                                 {logo.selectedLineId === line.id && (
                                     <>
+                                        {/* Start- und Endpunkte */}
                                         <circle
                                             cx={`${line.x1}%`}
                                             cy={`${line.y1}%`}
@@ -471,6 +574,19 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                             fill="blue"
                                             className="pointer-events-none"
                                         />
+                                        {/* Vektorpunkte */}
+                                        {line.vectorPoints.map((point, index) => (
+                                            <circle
+                                                key={index}
+                                                cx={`${point.x}%`}
+                                                cy={`${point.y}%`}
+                                                r="3"
+                                                fill="orange"
+                                                stroke="white"
+                                                strokeWidth="1"
+                                                className="pointer-events-none"
+                                            />
+                                        ))}
                                     </>
                                 )}
                             </svg>
@@ -769,6 +885,37 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                             />
                                         </div>
 
+                                        {/* Border Radius */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">
+                                                Form: {logo.dots.find(d => d.id === logo.selectedDotId)?.borderRadius === 100 ? 'Kreis' : logo.dots.find(d => d.id === logo.selectedDotId)?.borderRadius === 0 ? 'Quadrat' : 'Abgerundet'} ({logo.dots.find(d => d.id === logo.selectedDotId)?.borderRadius}%)
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="100"
+                                                value={logo.dots.find(d => d.id === logo.selectedDotId)?.borderRadius || 100}
+                                                onChange={(e) => updateDot('borderRadius', parseInt(e.target.value))}
+                                                className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {/* Rotation */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-300 mb-1">
+                                                Rotation: {logo.dots.find(d => d.id === logo.selectedDotId)?.rotation}°
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min="-180"
+                                                max="180"
+                                                step="5"
+                                                value={logo.dots.find(d => d.id === logo.selectedDotId)?.rotation || 0}
+                                                onChange={(e) => updateDot('rotation', parseInt(e.target.value))}
+                                                className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                        </div>
+
                                         {/* Position */}
                                         <div className="grid grid-cols-2 gap-2">
                                             <div>
@@ -920,6 +1067,63 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                                     />
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        {/* Vektorpunkte */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="block text-xs font-medium text-gray-300">
+                                                    Kurven-Punkte ({logo.lines.find(l => l.id === logo.selectedLineId)?.vectorPoints.length || 0})
+                                                </label>
+                                                <button
+                                                    onClick={addVectorPoint}
+                                                    className="px-2 py-1 bg-purple-500 text-white rounded text-xs hover:bg-purple-600 transition-colors"
+                                                >
+                                                    + Punkt
+                                                </button>
+                                            </div>
+
+                                            {logo.lines.find(l => l.id === logo.selectedLineId)?.vectorPoints.map((point, index) => (
+                                                <div key={index} className="bg-gray-600 rounded p-2 mb-2">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-xs text-gray-300">Punkt {index + 1}</span>
+                                                        <button
+                                                            onClick={() => removeVectorPoint(index)}
+                                                            className="text-red-400 hover:text-red-300 text-xs"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="block text-xs text-gray-400 mb-1">
+                                                                X: {point.x.toFixed(1)}%
+                                                            </label>
+                                                            <input
+                                                                type="range"
+                                                                min="0"
+                                                                max="100"
+                                                                value={point.x}
+                                                                onChange={(e) => updateVectorPoint(index, 'x', parseInt(e.target.value))}
+                                                                className="w-full h-1 bg-gray-500 rounded-lg appearance-none cursor-pointer"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs text-gray-400 mb-1">
+                                                                Y: {point.y.toFixed(1)}%
+                                                            </label>
+                                                            <input
+                                                                type="range"
+                                                                min="0"
+                                                                max="100"
+                                                                value={point.y}
+                                                                onChange={(e) => updateVectorPoint(index, 'y', parseInt(e.target.value))}
+                                                                className="w-full h-1 bg-gray-500 rounded-lg appearance-none cursor-pointer"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )) || null}
                                         </div>
                                     </div>
                                 )}
@@ -1123,6 +1327,32 @@ function LogoCard({ logo, onEdit }: {
             .join(', ');
     };
 
+    // Erstellt einen SVG-Pfad für die Vorschau
+    const createSVGPath = (line: LineElement): string => {
+        if (line.vectorPoints.length === 0) {
+            return `M ${line.x1} ${line.y1} L ${line.x2} ${line.y2}`;
+        } else {
+            let path = `M ${line.x1} ${line.y1}`;
+            if (line.vectorPoints.length === 1) {
+                const cp = line.vectorPoints[0];
+                path += ` Q ${cp.x} ${cp.y} ${line.x2} ${line.y2}`;
+            } else {
+                for (let i = 0; i < line.vectorPoints.length; i++) {
+                    const cp = line.vectorPoints[i];
+                    if (i === line.vectorPoints.length - 1) {
+                        path += ` Q ${cp.x} ${cp.y} ${line.x2} ${line.y2}`;
+                    } else {
+                        const nextCp = line.vectorPoints[i + 1];
+                        const midX = (cp.x + nextCp.x) / 2;
+                        const midY = (cp.y + nextCp.y) / 2;
+                        path += ` Q ${cp.x} ${cp.y} ${midX} ${midY}`;
+                    }
+                }
+            }
+            return path;
+        }
+    };
+
     return (
         <div
             onClick={onEdit}
@@ -1157,7 +1387,7 @@ function LogoCard({ logo, onEdit }: {
             {dots.map((dot) => (
                 <div
                     key={dot.id}
-                    className={`absolute rounded-full ${
+                    className={`absolute ${
                         dot.isEraser ? 'opacity-50' : ''
                     }`}
                     style={{
@@ -1167,8 +1397,9 @@ function LogoCard({ logo, onEdit }: {
                         height: `${dot.size}px`,
                         backgroundColor: dot.isEraser ? 'transparent' : dot.color,
                         border: dot.isEraser ? `1px dashed ${dot.color}` : 'none',
+                        borderRadius: `${dot.borderRadius}%`,
                         mixBlendMode: dot.isEraser ? 'difference' : 'normal',
-                        transform: 'translate(-50%, -50%)'
+                        transform: `translate(-50%, -50%) rotate(${dot.rotation}deg)`
                     }}
                 />
             ))}
@@ -1178,16 +1409,16 @@ function LogoCard({ logo, onEdit }: {
                 <svg
                     key={line.id}
                     className="absolute inset-0 w-full h-full pointer-events-none"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
                 >
-                    <line
-                        x1={`${line.x1}%`}
-                        y1={`${line.y1}%`}
-                        x2={`${line.x2}%`}
-                        y2={`${line.y2}%`}
+                    <path
+                        d={createSVGPath(line)}
                         stroke={line.color}
                         strokeWidth={line.width}
                         strokeDasharray={line.isEraser ? '3,3' : 'none'}
                         opacity={line.isEraser ? 0.7 : 1}
+                        fill="none"
                         style={{
                             mixBlendMode: line.isEraser ? 'difference' : 'normal'
                         }}
