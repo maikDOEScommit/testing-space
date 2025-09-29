@@ -618,7 +618,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
 
                             const sloganElement = logo.slogan ? (
                                 <div
-                                    className="text-lg opacity-75 mt-2"
+                                    className="text-lg opacity-75 mt-1 text-center"
                                     style={{
                                         fontFamily: `"${logo.fontName}", sans-serif`,
                                         color: logo.textColor
@@ -643,9 +643,11 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                         <div className="text-center">
                                             <div className="flex items-center justify-center gap-4">
                                                 {iconElement}
-                                                {textElement}
+                                                <div className="text-center">
+                                                    {textElement}
+                                                    {sloganElement}
+                                                </div>
                                             </div>
-                                            {sloganElement}
                                         </div>
                                     );
 
@@ -653,10 +655,12 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     return (
                                         <div className="text-center">
                                             <div className="flex items-center justify-center gap-4">
-                                                {textElement}
+                                                <div className="text-center">
+                                                    {textElement}
+                                                    {sloganElement}
+                                                </div>
                                                 {iconElement}
                                             </div>
-                                            {sloganElement}
                                         </div>
                                     );
 
@@ -664,10 +668,10 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     return (
                                         <div className="text-center">
                                             {iconElement}
-                                            <div className="mt-2">
+                                            <div className="mt-1 text-center">
                                                 {textElement}
+                                                {sloganElement}
                                             </div>
-                                            {sloganElement}
                                         </div>
                                     );
 
