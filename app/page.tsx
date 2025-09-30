@@ -46,6 +46,7 @@ type DotElement = {
     isEraser: boolean; // Radier-Modus
     borderWidth: number; // Border Dicke in px
     borderColor: string; // Border Farbe
+    opacity: number; // Transparenz (0-100)
 };
 
 type VectorPoint = {
@@ -74,6 +75,15 @@ type FontFeature = {
     enabled: boolean;
 };
 
+type Layer = {
+    id: string;
+    name: string;
+    type: 'logo' | 'dots' | 'lines';
+    visible: boolean;
+    locked: boolean;
+    order: number; // Z-Index order (higher = on top)
+};
+
 type Logo = {
     id: string;
     text: string;
@@ -93,6 +103,9 @@ type Logo = {
     useIcon: boolean;
     layout: 'wordmark' | 'lok' | 'schub' | 'star'; // Layout-Prinzipien
     iconSymbol: string; // Unicode-Symbol oder Emoji für das Icon
+    // Ebenen-System
+    layers: Layer[];
+    selectedLayerId: string | null;
 };
 
 // --- LogoEditor Komponente (vorher in separater Datei) ---
@@ -102,11 +115,51 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     onUpdate: (logo: Logo) => void;
 }) {
     const [logo, setLogo] = useState(initialLogo);
-    const [isDragging, setIsDragging] = useState<{type: 'dot' | 'vector' | 'lineEnd', id: string, pointIndex?: number, endPoint?: 'start' | 'end'} | null>(null);
+    const [isDragging, setIsDragging] = useState<{type: 'dot' | 'vector' | 'lineEnd' | 'layer', id: string, pointIndex?: number, endPoint?: 'start' | 'end'} | null>(null);
+    const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
+    const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
 
     useEffect(() => {
-        setLogo(initialLogo);
-    }, [initialLogo]);
+        // Initialize default layers if they don't exist
+        if (!initialLogo.layers || initialLogo.layers.length === 0) {
+            const defaultLayers: Layer[] = [
+                {
+                    id: 'logo-layer',
+                    name: 'Logo',
+                    type: 'logo',
+                    visible: true,
+                    locked: false,
+                    order: 1
+                },
+                {
+                    id: 'dots-layer',
+                    name: 'Punkte',
+                    type: 'dots',
+                    visible: true,
+                    locked: false,
+                    order: 2
+                },
+                {
+                    id: 'lines-layer',
+                    name: 'Linien',
+                    type: 'lines',
+                    visible: true,
+                    locked: false,
+                    order: 3
+                }
+            ];
+
+            const logoWithLayers = {
+                ...initialLogo,
+                layers: defaultLayers,
+                selectedLayerId: null
+            };
+            setLogo(logoWithLayers);
+            onUpdate(logoWithLayers);
+        } else {
+            setLogo(initialLogo);
+        }
+    }, [initialLogo, onUpdate]);
 
     // Aktualisiert alle Zeichen-Farben basierend auf der globalen Textfarbe
     const updateAllCharacterColors = (logo: Logo, newTextColor: string): Logo => {
@@ -218,6 +271,80 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
         onUpdate(updatedLogo);
     };
 
+    const handleLayerClick = (layerId: string) => {
+        const updatedLogo = { ...logo, selectedLayerId: layerId, selectedCharIndex: null, selectedDotId: null, selectedLineId: null };
+        setLogo(updatedLogo);
+        onUpdate(updatedLogo);
+    };
+
+    const updateLayer = useCallback((layerId: string, property: keyof Layer, value: string | number | boolean) => {
+        setLogo(prevLogo => {
+            const updatedLayers = prevLogo.layers.map(layer =>
+                layer.id === layerId
+                    ? { ...layer, [property]: value }
+                    : layer
+            );
+
+            const updatedLogo = { ...prevLogo, layers: updatedLayers };
+            onUpdate(updatedLogo);
+            return updatedLogo;
+        });
+    }, [onUpdate]);
+
+    const reorderLayers = useCallback((draggedId: string, targetId: string) => {
+        setLogo(prevLogo => {
+            if (!prevLogo.layers) return prevLogo;
+
+            const newLayers = [...prevLogo.layers];
+            const draggedIndex = newLayers.findIndex(layer => layer.id === draggedId);
+            const targetIndex = newLayers.findIndex(layer => layer.id === targetId);
+
+            if (draggedIndex === -1 || targetIndex === -1) return prevLogo;
+
+            // Remove dragged layer and insert at target position
+            const [draggedLayer] = newLayers.splice(draggedIndex, 1);
+            newLayers.splice(targetIndex, 0, draggedLayer);
+
+            // Update order values based on new positions
+            const updatedLayers = newLayers.map((layer, index) => ({
+                ...layer,
+                order: newLayers.length - index // Reverse order so top layer has highest z-index
+            }));
+
+            const updatedLogo = { ...prevLogo, layers: updatedLayers };
+            onUpdate(updatedLogo);
+            return updatedLogo;
+        });
+    }, [onUpdate]);
+
+    const handleLayerDragStart = (e: React.DragEvent, layerId: string) => {
+        setDraggedLayerId(layerId);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', layerId);
+    };
+
+    const handleLayerDragOver = (e: React.DragEvent, layerId: string) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverLayerId(layerId);
+    };
+
+    const handleLayerDrop = (e: React.DragEvent, targetLayerId: string) => {
+        e.preventDefault();
+
+        if (draggedLayerId && draggedLayerId !== targetLayerId) {
+            reorderLayers(draggedLayerId, targetLayerId);
+        }
+
+        setDraggedLayerId(null);
+        setDragOverLayerId(null);
+    };
+
+    const handleLayerDragEnd = () => {
+        setDraggedLayerId(null);
+        setDragOverLayerId(null);
+    };
+
     const addDot = () => {
         const newDot: DotElement = {
             id: `dot-${Date.now()}`,
@@ -229,7 +356,8 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
             rotation: 0, // Keine Rotation
             isEraser: false,
             borderWidth: 0, // Kein Border standardmäßig
-            borderColor: '#000000' // Schwarzer Border
+            borderColor: '#000000', // Schwarzer Border
+            opacity: 100 // Vollständig opaque
         };
         const updatedLogo = {
             ...logo,
@@ -417,7 +545,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
     };
 
     // Drag & Drop Funktionen
-    const handleMouseDown = (e: React.MouseEvent, type: 'dot' | 'vector' | 'lineEnd', id: string, pointIndex?: number, endPoint?: 'start' | 'end') => {
+    const handleMouseDown = (e: React.MouseEvent, type: 'dot' | 'vector' | 'lineEnd' | 'layer', id: string, pointIndex?: number, endPoint?: 'start' | 'end') => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragging({ type, id, pointIndex, endPoint });
@@ -575,6 +703,14 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                         }}
                     >
                         {/* Logo Layout Renderer */}
+                        {/* Logo Layer */}
+                        <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                display: logo.layers?.find(l => l.type === 'logo')?.visible !== false ? 'block' : 'none',
+                                zIndex: logo.layers?.find(l => l.type === 'logo')?.order || 1
+                            }}
+                        >
                         {(() => {
                             const textElement = (
                                 <div
@@ -645,9 +781,9 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                                 {iconElement}
                                                 <div className="text-center">
                                                     {textElement}
-                                                    {sloganElement}
                                                 </div>
                                             </div>
+                                            {sloganElement}
                                         </div>
                                     );
 
@@ -657,10 +793,10 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                             <div className="flex items-center justify-center gap-4">
                                                 <div className="text-center">
                                                     {textElement}
-                                                    {sloganElement}
                                                 </div>
                                                 {iconElement}
                                             </div>
+                                            {sloganElement}
                                         </div>
                                     );
 
@@ -680,7 +816,16 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     return textElement;
                             }
                         })()}
+                        </div>
 
+                        {/* Dots Layer */}
+                        <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                display: logo.layers?.find(l => l.type === 'dots')?.visible !== false ? 'block' : 'none',
+                                zIndex: logo.layers?.find(l => l.type === 'dots')?.order || 2
+                            }}
+                        >
                         {/* Punkte */}
                         {logo.dots.map((dot) => (
                             <div
@@ -706,13 +851,23 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     borderRadius: `${dot.borderRadius}%`,
                                     mixBlendMode: dot.isEraser ? 'difference' : 'normal',
                                     transform: `translate(-50%, -50%) rotate(${dot.rotation}deg)`,
-                                    cursor: isDragging?.type === 'dot' && isDragging.id === dot.id ? 'grabbing' : 'grab'
+                                    cursor: isDragging?.type === 'dot' && isDragging.id === dot.id ? 'grabbing' : 'grab',
+                                    opacity: dot.opacity / 100
                                 }}
                                 onClick={() => handleDotClick(dot.id)}
                                 onMouseDown={(e) => handleMouseDown(e, 'dot', dot.id)}
                             />
                         ))}
+                        </div>
 
+                        {/* Lines Layer */}
+                        <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                display: logo.layers?.find(l => l.type === 'lines')?.visible !== false ? 'block' : 'none',
+                                zIndex: logo.layers?.find(l => l.type === 'lines')?.order || 3
+                            }}
+                        >
                         {/* Linien */}
                         {logo.lines.map((line) => (
                             <svg
@@ -792,7 +947,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 <React.Fragment key={`handles-${line.id}`}>
                                     {/* Start-Handle */}
                                     <div
-                                        className="absolute w-3 h-3 bg-blue-500 border-2 border-white rounded-full cursor-grab hover:scale-110 transition-transform z-10"
+                                        className="absolute w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-grab hover:scale-110 transition-transform z-10 pointer-events-auto"
                                         style={{
                                             left: `${line.x1}%`,
                                             top: `${line.y1}%`,
@@ -803,7 +958,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     />
                                     {/* End-Handle */}
                                     <div
-                                        className="absolute w-3 h-3 bg-blue-500 border-2 border-white rounded-full cursor-grab hover:scale-110 transition-transform z-10"
+                                        className="absolute w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-grab hover:scale-110 transition-transform z-10 pointer-events-auto"
                                         style={{
                                             left: `${line.x2}%`,
                                             top: `${line.y2}%`,
@@ -815,6 +970,358 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 </React.Fragment>
                             )
                         ))}
+                        </div>
+                    </div>
+
+                    {/* Punkt- und Linien-Tools */}
+                    <div className="bg-gray-800 rounded-lg p-4 mb-6">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-lg font-semibold text-gray-200">Tools</h3>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={addDot}
+                                    className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors font-medium"
+                                >
+                                    + Punkt
+                                </button>
+                                <button
+                                    onClick={addLine}
+                                    className="px-4 py-2 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 transition-colors font-medium"
+                                >
+                                    + Linie
+                                </button>
+                            </div>
+                        </div>
+
+                        {logo.selectedDotId && (
+                            <div className="space-y-3 bg-gray-700 rounded-lg p-3 mb-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-semibold text-gray-200">Punkt bearbeiten</h4>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => updateDot('isEraser', !logo.dots.find(d => d.id === logo.selectedDotId)?.isEraser)}
+                                            className={`px-2 py-1 text-white rounded text-xs transition-colors ${
+                                                logo.dots.find(d => d.id === logo.selectedDotId)?.isEraser
+                                                    ? 'bg-orange-500 hover:bg-orange-600'
+                                                    : 'bg-blue-500 hover:bg-blue-600'
+                                            }`}
+                                        >
+                                            {logo.dots.find(d => d.id === logo.selectedDotId)?.isEraser ? '🧽' : '🖊️'}
+                                        </button>
+                                        <button
+                                            onClick={deleteDot}
+                                            className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* Farbe */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">Farbe</label>
+                                        <div className="flex items-center bg-gray-600 rounded px-2 py-1">
+                                            <input
+                                                type="color"
+                                                value={logo.dots.find(d => d.id === logo.selectedDotId)?.color || '#FFFFFF'}
+                                                onChange={(e) => updateDot('color', e.target.value)}
+                                                className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
+                                    {/* Dicke/Größe */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Größe ({logo.dots.find(d => d.id === logo.selectedDotId)?.size}px)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="2"
+                                            max="30"
+                                            value={logo.dots.find(d => d.id === logo.selectedDotId)?.size || 8}
+                                            onChange={(e) => updateDot('size', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* Border Farbe */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">Border Farbe</label>
+                                        <div className="flex items-center bg-gray-600 rounded px-2 py-1">
+                                            <input
+                                                type="color"
+                                                value={logo.dots.find(d => d.id === logo.selectedDotId)?.borderColor || '#000000'}
+                                                onChange={(e) => updateDot('borderColor', e.target.value)}
+                                                className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
+                                    {/* Border Dicke */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Border Dicke ({logo.dots.find(d => d.id === logo.selectedDotId)?.borderWidth}px)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="5"
+                                            value={logo.dots.find(d => d.id === logo.selectedDotId)?.borderWidth || 0}
+                                            onChange={(e) => updateDot('borderWidth', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-3">
+                                    {/* Form */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Form ({logo.dots.find(d => d.id === logo.selectedDotId)?.borderRadius}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.dots.find(d => d.id === logo.selectedDotId)?.borderRadius || 100}
+                                            onChange={(e) => updateDot('borderRadius', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    {/* Rotation */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Rotation ({logo.dots.find(d => d.id === logo.selectedDotId)?.rotation}°)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="-180"
+                                            max="180"
+                                            step="5"
+                                            value={logo.dots.find(d => d.id === logo.selectedDotId)?.rotation || 0}
+                                            onChange={(e) => updateDot('rotation', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    {/* Transparenz */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Transparenz ({logo.dots.find(d => d.id === logo.selectedDotId)?.opacity}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.dots.find(d => d.id === logo.selectedDotId)?.opacity || 100}
+                                            onChange={(e) => updateDot('opacity', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {logo.selectedLineId && (
+                            <div className="space-y-3 bg-gray-700 rounded-lg p-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-semibold text-gray-200">Linie bearbeiten</h4>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => updateLine('isEraser', !logo.lines.find(l => l.id === logo.selectedLineId)?.isEraser)}
+                                            className={`px-2 py-1 text-white rounded text-xs transition-colors ${
+                                                logo.lines.find(l => l.id === logo.selectedLineId)?.isEraser
+                                                    ? 'bg-orange-500 hover:bg-orange-600'
+                                                    : 'bg-blue-500 hover:bg-blue-600'
+                                            }`}
+                                        >
+                                            {logo.lines.find(l => l.id === logo.selectedLineId)?.isEraser ? '🧽' : '🖊️'}
+                                        </button>
+                                        <button
+                                            onClick={deleteLine}
+                                            className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* Farbe */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">Farbe</label>
+                                        <div className="flex items-center bg-gray-600 rounded px-2 py-1">
+                                            <input
+                                                type="color"
+                                                value={logo.lines.find(l => l.id === logo.selectedLineId)?.color || '#FFFFFF'}
+                                                onChange={(e) => updateLine('color', e.target.value)}
+                                                className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
+                                    {/* Dicke */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Dicke ({logo.lines.find(l => l.id === logo.selectedLineId)?.width}px)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="1"
+                                            max="10"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.width || 2}
+                                            onChange={(e) => updateLine('width', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-3">
+                                    {/* Border Farbe */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">Border Farbe</label>
+                                        <div className="flex items-center bg-gray-600 rounded px-2 py-1">
+                                            <input
+                                                type="color"
+                                                value={logo.lines.find(l => l.id === logo.selectedLineId)?.borderColor || '#000000'}
+                                                onChange={(e) => updateLine('borderColor', e.target.value)}
+                                                className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
+                                    {/* Border Dicke */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Border Dicke ({logo.lines.find(l => l.id === logo.selectedLineId)?.borderWidth}px)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="5"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.borderWidth || 0}
+                                            onChange={(e) => updateLine('borderWidth', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    {/* Border Radius */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Border Radius ({logo.lines.find(l => l.id === logo.selectedLineId)?.borderRadius}px)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="20"
+                                            step="1"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.borderRadius || 0}
+                                            onChange={(e) => updateLine('borderRadius', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-4 gap-2">
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">
+                                            X1 ({logo.lines.find(l => l.id === logo.selectedLineId)?.x1}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.x1 || 20}
+                                            onChange={(e) => updateLine('x1', parseInt(e.target.value))}
+                                            className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">
+                                            Y1 ({logo.lines.find(l => l.id === logo.selectedLineId)?.y1}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.y1 || 50}
+                                            onChange={(e) => updateLine('y1', parseInt(e.target.value))}
+                                            className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">
+                                            X2 ({logo.lines.find(l => l.id === logo.selectedLineId)?.x2}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.x2 || 80}
+                                            onChange={(e) => updateLine('x2', parseInt(e.target.value))}
+                                            className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">
+                                            Y2 ({logo.lines.find(l => l.id === logo.selectedLineId)?.y2}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.lines.find(l => l.id === logo.selectedLineId)?.y2 || 50}
+                                            onChange={(e) => updateLine('y2', parseInt(e.target.value))}
+                                            className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Kurven-Punkte */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-xs text-gray-400">
+                                            Kurven ({logo.lines.find(l => l.id === logo.selectedLineId)?.vectorPoints.length || 0})
+                                        </label>
+                                        <button
+                                            onClick={addVectorPoint}
+                                            className="px-2 py-1 bg-purple-500 text-white rounded text-xs hover:bg-purple-600 transition-colors"
+                                        >
+                                            + Punkt
+                                        </button>
+                                    </div>
+
+                                    {logo.lines.find(l => l.id === logo.selectedLineId)?.vectorPoints.map((point, index) => (
+                                        <div key={index} className="bg-gray-600 rounded p-2 mb-2 flex items-center gap-2">
+                                            <div className="flex-1 grid grid-cols-2 gap-2">
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    value={point.x}
+                                                    onChange={(e) => updateVectorPoint(index, 'x', parseInt(e.target.value))}
+                                                    className="w-full h-1 bg-gray-500 rounded-lg appearance-none cursor-pointer"
+                                                    title={`X: ${point.x.toFixed(1)}%`}
+                                                />
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    value={point.y}
+                                                    onChange={(e) => updateVectorPoint(index, 'y', parseInt(e.target.value))}
+                                                    className="w-full h-1 bg-gray-500 rounded-lg appearance-none cursor-pointer"
+                                                    title={`Y: ${point.y.toFixed(1)}%`}
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={() => removeVectorPoint(index)}
+                                                className="text-red-400 hover:text-red-300 text-xs px-1"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    )) || null}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Logo-Layout Einstellungen */}
@@ -958,6 +1465,97 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                         </div>
                     </div>
 
+                    {/* Ebenen-System */}
+                    <div className="bg-gray-800 rounded-lg p-4 mb-6">
+                        <h3 className="text-lg font-semibold text-gray-200 mb-4">Ebenen</h3>
+
+                        <div className="space-y-2">
+                            {logo.layers?.length ? logo.layers
+                                .sort((a, b) => b.order - a.order) // Sort by order (highest first = topmost layer)
+                                .map((layer, index) => (
+                                <div
+                                    key={layer.id}
+                                    draggable={true}
+                                    className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                                        logo.selectedLayerId === layer.id
+                                            ? 'bg-blue-600'
+                                            : 'bg-gray-700 hover:bg-gray-600'
+                                    } ${
+                                        draggedLayerId === layer.id
+                                            ? 'opacity-50 scale-95'
+                                            : ''
+                                    } ${
+                                        dragOverLayerId === layer.id && draggedLayerId !== layer.id
+                                            ? 'border-t-2 border-blue-400'
+                                            : ''
+                                    }`}
+                                    onClick={() => handleLayerClick(layer.id)}
+                                    onDragStart={(e) => handleLayerDragStart(e, layer.id)}
+                                    onDragOver={(e) => handleLayerDragOver(e, layer.id)}
+                                    onDrop={(e) => handleLayerDrop(e, layer.id)}
+                                    onDragEnd={handleLayerDragEnd}
+                                >
+                                    {/* Drag Handle */}
+                                    <div className="text-gray-400 cursor-move">
+                                        ⋮⋮
+                                    </div>
+
+                                    {/* Layer Icon */}
+                                    <div className="text-xl">
+                                        {layer.type === 'logo' && '📝'}
+                                        {layer.type === 'dots' && '⚫'}
+                                        {layer.type === 'lines' && '📏'}
+                                    </div>
+
+                                    {/* Layer Name */}
+                                    <div className="flex-1">
+                                        <div className="text-sm font-medium text-gray-200">
+                                            {layer.name}
+                                        </div>
+                                        <div className="text-xs text-gray-400">
+                                            Z-Index: {layer.order}
+                                        </div>
+                                    </div>
+
+                                    {/* Visibility Toggle */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateLayer(layer.id, 'visible', !layer.visible);
+                                        }}
+                                        className={`text-sm px-2 py-1 rounded transition-colors ${
+                                            layer.visible
+                                                ? 'text-green-400 hover:text-green-300'
+                                                : 'text-gray-500 hover:text-gray-400'
+                                        }`}
+                                    >
+                                        {layer.visible ? '👁️' : '🙈'}
+                                    </button>
+
+                                    {/* Lock Toggle */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateLayer(layer.id, 'locked', !layer.locked);
+                                        }}
+                                        className={`text-sm px-2 py-1 rounded transition-colors ${
+                                            layer.locked
+                                                ? 'text-red-400 hover:text-red-300'
+                                                : 'text-gray-400 hover:text-gray-300'
+                                        }`}
+                                    >
+                                        {layer.locked ? '🔒' : '🔓'}
+                                    </button>
+                                </div>
+                            )) : (
+                                <div className="text-center text-gray-400 text-sm py-4">
+                                    Ebenen werden geladen...
+                                </div>
+                            )}
+                        </div>
+
+                    </div>
+
                     {/* Punkt- und Linien-Tools */}
                     <div className="bg-gray-800 rounded-lg p-4 mb-6">
                         <div className="flex items-center justify-between mb-3">
@@ -1060,7 +1658,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-3 gap-3">
                                     {/* Form */}
                                     <div>
                                         <label className="block text-xs text-gray-400 mb-2">
@@ -1087,6 +1685,20 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                             step="5"
                                             value={logo.dots.find(d => d.id === logo.selectedDotId)?.rotation || 0}
                                             onChange={(e) => updateDot('rotation', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    {/* Transparenz */}
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-2">
+                                            Transparenz ({logo.dots.find(d => d.id === logo.selectedDotId)?.opacity}%)
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={logo.dots.find(d => d.id === logo.selectedDotId)?.opacity || 100}
+                                            onChange={(e) => updateDot('opacity', parseInt(e.target.value))}
                                             className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
                                         />
                                     </div>
@@ -1526,7 +2138,7 @@ function LogoEditor({ logo: initialLogo, onClose, onUpdate }: {
                                 <h3 className="text-lg font-semibold text-gray-200 mb-3">
                                     Font Features ({logo.fontName})
                                 </h3>
-                                <div className="space-y-2 max-h-40 overflow-y-auto">
+                                <div className="space-y-2">
                                     {logo.fontFeatures.map((feature) => (
                                         <div key={feature.tag} className="flex items-center justify-between bg-gray-700 rounded-lg p-2">
                                             <div>
@@ -1871,7 +2483,8 @@ function LogoCard({ logo, onEdit }: {
                             : 'none',
                         borderRadius: `${dot.borderRadius}%`,
                         mixBlendMode: dot.isEraser ? 'difference' : 'normal',
-                        transform: `translate(-50%, -50%) rotate(${dot.rotation}deg)`
+                        transform: `translate(-50%, -50%) rotate(${dot.rotation}deg)`,
+                        opacity: dot.opacity / 100
                     }}
                 />
             ))}
